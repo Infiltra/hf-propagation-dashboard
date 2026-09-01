@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Space Weather</title>
+
+<style>
+body {
+  background:#0b0f14;
+  color:#00ffcc;
+  font-family:monospace;
+  text-align:center;
+}
+
+.container {
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+
+.card {
+  background:black;
+  margin:10px;
+  padding:10px;
+  border-radius:8px;
+  width:320px;
+}
+
+img {
+  width:300px;
+  display:block;
+  margin:5px auto;
+}
+</style>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+
+<body>
+
+<h2>🌞 Space Weather Dashboard</h2>
+
+<div class="container">
+
+  <!-- SDO 171 -->
+  <div class="card">
+    <h3>SDO 171 Å (Corona)</h3>
+    <img id="img171">
+    <img id="img171_anim">
+  </div>
+
+  <!-- SDO 304 -->
+  <div class="card">
+    <h3>SDO 304 Å (Chromosphere)</h3>
+    <img id="img304">
+    <img id="img304_anim">
+  </div>
+
+  <!-- SDO 131 -->
+  <div class="card">
+    <h3>SDO 131 Å (Flares)</h3>
+    <img id="img131">
+    <img id="img131_anim">
+  </div>
+
+  <!-- Aurora -->
+  <div class="card">
+    <h3>Aurora Forecast</h3>
+    <img id="aurora">
+  </div>
+
+  <!-- CME -->
+  <div class="card">
+    <h3>CME (SOHO LASCO)</h3>
+    <img id="cme">
+    <img id="cme_anim">
+  </div>
+
+  <!-- High-res CME -->
+  <div class="card">
+    <h3>CME High Resolution</h3>
+    <img id="cme_01">
+  </div>
+
+</div>
+
+<script>
+
+// ---------- CACHE ELEMENTS ----------
+let img171 = document.getElementById("img171");
+let img304 = document.getElementById("img304");
+let img131 = document.getElementById("img131");
+
+let img171_anim = document.getElementById("img171_anim");
+let img304_anim = document.getElementById("img304_anim");
+let img131_anim = document.getElementById("img131_anim");
+
+let aurora = document.getElementById("aurora");
+
+let cme = document.getElementById("cme");
+let cme_anim = document.getElementById("cme_anim");
+let cme_high = document.getElementById("cme_01");
+
+
+// ---------- MAIN REFRESH ----------
+function refresh(){
+
+  let t = Date.now();
+
+  // ---------- STATIC ----------
+  img171.src = `https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0171.jpg?${t}`;
+  img304.src = `https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0304.jpg?${t}`;
+  img131.src = `https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0131.jpg?${t}`;
+
+  aurora.src = `https://services.swpc.noaa.gov/images/animations/ovation/north/latest.jpg?${t}`;
+
+  cme.src = `https://soho.nascom.nasa.gov/data/realtime/c2/512/latest.jpg?${t}`;
+  cme_high.src = `https://soho.nascom.nasa.gov/data/realtime/c2/1024/latest.jpg?${t}`;
+
+  // ---------- TIMELAPSE (FIXED) ----------
+    img171_anim.src = `https://services.swpc.noaa.gov/images/animations/sdo-171/latest.gif`;
+    img304_anim.src = `https://services.swpc.noaa.gov/images/animations/sdo-304/latest.gif`;
+    img131_anim.src = `https://services.swpc.noaa.gov/images/animations/sdo-131/latest.gif`;
+
+    cme_anim.src = `https://services.swpc.noaa.gov/images/animations/lasco-c2/latest.gif`;
+}
+
+
+// ---------- FALLBACKS (ROBUSTNESS) ----------
+img171_anim.onerror = () => img171_anim.style.display = "none";
+img304_anim.onerror = () => img304_anim.style.display = "none";
+img131_anim.onerror = () => img131_anim.style.display = "none";
+
+cme_anim.onerror = () => cme_anim.style.display = "none";
+
+cme.onerror = () => {
+  cme.src = "https://services.swpc.noaa.gov/images/animations/lasco-c2/latest.jpg";
+};
+
+
+// ---------- INIT ----------
+refresh();
+
+// Static updates every 60s
+setInterval(refresh, 60000);
+
+</script>
+
+</body>
+</html>

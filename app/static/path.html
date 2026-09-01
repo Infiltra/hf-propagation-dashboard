@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>HF Path Tool</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<style>
+body { margin:0; background:#000; color:#fff; font-family:monospace; }
+#map { height:75vh; }
+
+.controls {
+  padding:10px;
+  background:#111;
+}
+
+input {
+  width:80px;
+  margin:5px;
+}
+
+button {
+  padding:5px 10px;
+  background:#00ffcc;
+  border:none;
+  cursor:pointer;
+}
+
+#info {
+  padding:10px;
+  background:#111;
+}
+
+#status {
+  padding:8px;
+  background:#222;
+  color:#00ffcc;
+}
+</style>
+</head>
+
+<body>
+
+<div class="controls">
+  TX:
+  <input id="txlat" value="13.08">
+  <input id="txlon" value="80.27">
+
+  RX:
+  <input id="rxlat" value="51.50">
+  <input id="rxlon" value="-0.12">
+
+  <button onclick="run()">📡 Predict</button>
+</div>
+
+<div id="status">Click map to set TX</div>
+
+<div id="map"></div>
+
+<div id="info">Waiting...</div>
+
+<script>
+let map = L.map('map').setView([20,0], 2);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+let pathLayer = null;
+let txMarker = null;
+let rxMarker = null;
+let greyMarkers = [];
+
+// ---------- CLICK STATE ----------
+let clickStage = 0;
+let tx = null;
+let rx = null;
+
+// ---------- GREYLINE + NIGHT ----------
+let greylineLayer = null;
+let nightLayer = null;
+
+async function drawGreyline(){
+
+  const res = await fetch("/greyline");
+  const data = await res.json();
+
+  const pts = data.points.map(p => [p.lat, p.lon]);
+
+  if(greylineLayer) map.removeLayer(greylineLayer);
+  if(nightLayer) map.removeLayer(nightLayer);
+
+  greylineLayer = L.polyline(pts, {
+    color:'orange',
+    weight:2
+  }).addTo(map);
+
+  // ---- SUN BASED NIGHT ----
+  let now = new Date();
+  let day = Math.floor((now - new Date(now.getFullYear(),0,0)) / 86400000);
+  let decl = 23.44 * Math.sin((2 * Math.PI / 365) * (day - 81));
+
+  let nightNorth = decl < 0;
+
+  let nightPoly;
+
+  if(nightNorth){
+    nightPoly = [...pts, [90,180], [90,-180]];
+  } else {
+    nightPoly = [...pts, [-90,180], [-90,-180]];
+  }
+
+  nightLayer = L.polygon(nightPoly, {
+    stroke:false,
+    fillColor:'black',
+    fillOpacity:0.35
+  }).addTo(map);
+}
+
+// ---------- CLICK HANDLER ----------
+map.on("click", function(e){
+
+  let lat = parseFloat(e.latlng.lat.toFixed(2));
+  let lon = parseFloat(e.latlng.lng.toFixed(2));
+
+  if(clickStage === 0){
+
+    tx = [lat, lon];
+    document.getElementById("txlat").value = lat;
+    document.getElementById("txlon").value = lon;
+
+    document.getElementById("status").innerText = "TX set → click to set RX";
+
+    clickStage = 1;
+
+  } else if(clickStage === 1){
+
+    rx = [lat, lon];
+    document.getElementById("rxlat").value = lat;
+    document.getElementById("rxlon").value = lon;
+
+    document.getElementById("status").innerText = "RX set → calculating...";
+
+    clickStage = 2;
+
+    run(); // auto-run
+
+  } else {
+
+    // reset
+    clickStage = 0;
+    tx = null;
+    rx = null;
+
+    document.getElementById("status").innerText = "Reset → click to set TX";
+
+    if(pathLayer) map.removeLayer(pathLayer);
+    if(txMarker) map.removeLayer(txMarker);
+    if(rxMarker) map.removeLayer(rxMarker);
+    greyMarkers.forEach(m => map.removeLayer(m));
+    greyMarkers = [];
+  }
+});
+
+// ---------- PATH ----------
+async function run(){
+
+  if(!tx || !rx){
+    tx = [
+      parseFloat(document.getElementById("txlat").value),
+      parseFloat(document.getElementById("txlon").value)
+    ];
+
+    rx = [
+      parseFloat(document.getElementById("rxlat").value),
+      parseFloat(document.getElementById("rxlon").value)
+    ];
+  }
+
+  const res = await fetch(
+    `/path?tx_lat=${tx[0]}&tx_lon=${tx[1]}&rx_lat=${rx[0]}&rx_lon=${rx[1]}`
+  );
+
+  const d = await res.json();
+
+  console.log("PATH:", d);
+
+  if(pathLayer) map.removeLayer(pathLayer);
+  if(txMarker) map.removeLayer(txMarker);
+  if(rxMarker) map.removeLayer(rxMarker);
+
+  pathLayer = L.polyline(d.path, {
+    color:'cyan',
+    weight:3
+  }).addTo(map);
+
+  // ---------- REAL GREYLINE INTERSECTIONS ----------
+if(d.greyline_points && d.greyline_points.length > 0){
+
+  d.greyline_points.forEach(p => {
+
+    let marker = L.circleMarker([p.lat, p.lon], {
+      radius: 6,
+      color: 'white',
+      fillColor: 'yellow',
+      fillOpacity: 0.9,
+      weight: 2
+    }).addTo(map);
+
+    marker.bindTooltip("Greyline Boost");
+
+    greyMarkers.push(marker);
+  });
+}
+
+  txMarker = L.marker(tx).addTo(map).bindTooltip("TX");
+  rxMarker = L.marker(rx).addTo(map).bindTooltip("RX");
+
+  map.fitBounds(pathLayer.getBounds());
+
+  let bandHtml = "<br><b>Band Conditions</b><br>";
+
+for (let b in d.bands){
+  bandHtml += `${b}: ${d.bands[b].score} (${d.bands[b].quality})<br>`;
+}
+
+document.getElementById("info").innerHTML = `
+  <b>Distance:</b> ${d.distance_km} km<br>
+  <b>Best Band:</b> ${d.best_band}<br>
+  <b>Min MUF:</b> ${d.min_muf} MHz<br>
+  <b>Avg MUF:</b> ${d.avg_muf} MHz<br>
+  <b>Reliability:</b> ${d.reliability}%<br><br>
+
+  <b>Absorption</b><br>
+  Avg: ${d.absorption.avg_loss}<br>
+  Max: ${d.absorption.max_loss}<br>
+  Min: ${d.absorption.min_loss}<br>
+
+  ${bandHtml}
+`;
+
+  document.getElementById("status").innerText = "Click map to reset or set new TX";
+}
+
+// ---------- INIT ----------
+drawGreyline();
+setInterval(drawGreyline, 60000);
+
+run();
+</script>
+
+</body>
+</html>

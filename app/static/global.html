@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Global Propagation</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+  <style>
+    body { margin:0; background:#000; }
+    #map { height:100vh; }
+
+    #txInfo {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(0,0,0,0.85);
+      color: #00ffcc;
+      font-family: monospace;
+      padding: 10px;
+      font-size: 14px;
+      z-index: 1000;
+    }
+
+    #bandUI, #antennaUI, #beamUI {
+      border:1px solid #00ffcc;
+      border-radius:6px;
+      white-space:nowrap;
+      width:max-content;
+      position:absolute;
+      top:10px;
+      z-index:1000;
+      background:#000;
+      padding:8px;
+      color:#00ffcc;
+      font-family: monospace;
+    }
+
+    #bandUI { left:100px; }
+    #antennaUI { left:300px; }
+    #beamUI { left:600px; }
+
+    /* NEW — time UI placed safely */
+    #timeUI {
+      position:absolute;
+      top:60px;
+      left:100px;
+      z-index:1000;
+      background:#000;
+      padding:6px;
+      color:#00ffcc;
+      font-family: monospace;
+      border:1px solid #00ffcc;
+      border-radius:6px;
+    }
+
+    #legend {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: rgba(0,0,0,0.85);
+      padding: 10px;
+      color: #00ffcc;
+      font-family: monospace;
+      font-size: 13px;
+      border-radius: 6px;
+    }
+
+    #legend div {
+      display: flex;
+      align-items: center;
+      margin-top: 4px;
+    }
+
+    #legend span {
+      width: 18px;
+      height: 12px;
+      display: inline-block;
+      margin-right: 6px;
+    }
+
+    input, select {
+      width:60px;
+      background:black;
+      color:#00ffcc;
+      border:1px solid #00ffcc;
+    }
+
+  </style>
+</head>
+
+<body>
+
+<div id="bandUI">
+  Band:
+  <select id="bandSelect">
+    <option value="snr">All</option>
+    <option value="10m">10m</option>
+    <option value="15m">15m</option>
+    <option value="20m">20m</option>
+    <option value="40m">40m</option>
+    <option value="80m">80m</option>
+  </select>
+</div>
+
+<div id="antennaUI">
+  H:
+  <input id="antH" type="number" value="10"> m
+  MSL:
+  <input id="msl" type="number" value="10"> m
+</div>
+
+<div id="beamUI">
+  Az:
+  <input id="az" type="number" value="0">
+  BW:
+  <input id="bw" type="number" value="90">
+</div>
+
+<!-- NEW TIME CONTROL (non-intrusive) -->
+<div id="timeUI">
+  UTC:
+  <input id="timeSlider" type="range" min="0" max="23" value="12">
+  <span id="timeLabel">12:00</span>
+</div>
+
+<div id="legend">
+  <b>HF SNR</b><br>
+<div><span style="background:rgba(0,255,255,0.9)"></span> Strong (DX solid)</div>
+<div><span style="background:rgba(0,255,0,0.8)"></span> Good</div>
+<div><span style="background:rgba(255,255,0,0.7)"></span> Usable</div>
+<div><span style="background:rgba(255,165,0,0.6)"></span> Weak</div>
+<div><span style="background:rgba(255,0,0,0.5)"></span> Marginal</div>
+<div><span style="background:rgba(0,0,0,0)"></span> No Propagation</div>
+</div>
+
+<div id="map"></div>
+<div id="txInfo">Click map to set TX location</div>
+
+<script>
+
+// ---------------- MAP ----------------
+let map = L.map('map').setView([20,0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+// ---------------- STATE ----------------
+let txMarker = null;
+let txHeatLayer = null;
+let globalHeat = null;
+let lastTX = null;
+
+// ---------------- TIME ----------------
+let timeSlider = document.getElementById("timeSlider");
+let timeLabel = document.getElementById("timeLabel");
+
+function angleLoss(distance_km, antenna_h){
+
+  // crude takeoff angle approximation
+  let takeoff = Math.max(3, 30 - (antenna_h * 0.7));
+
+  // ideal skip distance ~ function of angle
+  let ideal = 1500 + (50 * (90 - takeoff));
+
+  let delta = Math.abs(distance_km - ideal);
+
+  let width = 2000;
+
+  let factor = Math.max(0.2, 1 - (delta / width));
+
+  return factor;
+}
+
+function isOcean(lat, lon){
+  // crude but fast: latitude bands + known ocean zones
+  // avoids heavy GIS dependency
+
+  // very rough heuristic (works surprisingly well visually)
+  if(Math.abs(lat) < 60){
+    // major ocean regions
+    if(lon < -30 && lon > -160) return true;   // Pacific
+    if(lon > 20 && lon < 150) return true;     // Indian Ocean
+  }
+
+  return false;
+}
+
+function getTimestamp(){
+  let hour = parseInt(timeSlider.value);
+
+  let now = new Date();
+  return Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    hour, 0, 0
+  ) / 1000;
+}
+
+timeSlider.oninput = ()=>{
+  let h = timeSlider.value;
+  timeLabel.innerText = h + ":00";
+};
+
+// ---------------- GLOBAL ----------------
+async function loadGlobal(){
+  let res = await fetch("/propagation/global");
+  let data = await res.json();
+
+  let heatData = data.map(p => [p.lat, p.lon, p.snr/100]);
+
+  if(globalHeat) map.removeLayer(globalHeat);
+
+  globalHeat = L.heatLayer(heatData,{
+    radius:25, blur:20, maxZoom:5,
+    gradient:{
+      0.05:"black",0.2:"red",0.4:"orange",
+      0.6:"yellow",0.8:"lime",1.0:"cyan"
+    }
+  }).addTo(map);
+}
+
+// ---------------- CLICK ----------------
+map.on("click", e=>{
+  let lat = e.latlng.lat;
+  let lon = e.latlng.lng;
+  lastTX = {lat, lon};
+  loadTXPropagation(lat, lon);
+});
+
+// ---------------- TX ----------------
+async function loadTXPropagation(lat, lon){
+
+  let band = document.getElementById("bandSelect").value;
+  let h = document.getElementById("antH").value;
+  let msl = document.getElementById("msl").value;
+  let az = document.getElementById("az").value;
+  let bw = document.getElementById("bw").value;
+
+  let ts = getTimestamp();
+
+  if(txMarker) map.removeLayer(txMarker);
+  txMarker = L.marker([lat, lon]).addTo(map);
+
+  if(txHeatLayer) map.removeLayer(txHeatLayer);
+
+  let res = await fetch(
+    `/propagation/tx?tx_lat=${lat}&tx_lon=${lon}&antenna_h=${h}&msl=${msl}&azimuth=${az}&beamwidth=${bw}&timestamp=${ts}`
+  );
+
+  let data = await res.json();
+
+  if(!data || data.length === 0){
+    console.warn("NO DATA");
+    return;
+  }
+
+  let heatData = [];
+
+  data.forEach(p=>{
+    let val = p.snr;
+
+    // ---------- BAND + MUF CLIPPING ----------
+    if(band !== "snr" && p.bands){
+
+    let bandVal = p.bands[band] || 5;
+
+    if(bandVal < 20){
+        val = bandVal * 0.3;
+    } else if(bandVal < 30){
+        val = bandVal * 0.2;
+    } else {
+        val = bandVal;
+    }
+    }
+
+    // ---------- SKIP ZONE MODEL ----------
+    let d = p.dist || 0;
+
+    // hard dead zone
+    if(d < 300){
+    val = 0;
+    }
+
+    // transition zone
+    else if(d < 1200){
+    let factor = (d - 300) / 900;   // 0 → 1
+    val *= factor;
+    }
+    // ----------  SEA GAIN ----------
+    if(isOcean(p.lat, p.lon)){
+    val *= 1.15;   // boost over water
+    }
+
+    // clamp
+    val = Math.min(val, 100);
+// ---------- FINAL NORMALIZATION ----------
+val = Math.max(val, 0);
+    heatData.push([p.lat, p.lon, val/100]);
+  });
+
+  txHeatLayer = L.heatLayer(heatData,{
+  radius: 20,
+  blur: 10,
+  maxZoom: 5, 
+  gradient: {
+        0.0:  "rgba(0,0,0,0)",        // transparent — no propagation
+        0.05: "rgba(0,0,0,0)",        // keep transparent at very low values
+        0.2:  "rgba(255,0,0,0.5)",    // marginal
+        0.4:  "rgba(255,165,0,0.6)",  // weak
+        0.6:  "rgba(255,255,0,0.7)",  // usable
+        0.8:  "rgba(0,255,0,0.8)",    // good
+        1.0:  "rgba(0,255,255,0.9)"   // strong ← was 0.05, now correctly 1.0
+    }
+}).addTo(map);
+
+  let snrs = data.map(p=>p.snr);
+
+  let avg = snrs.reduce((a,b)=>a+b,0)/snrs.length;
+  let max = Math.max(...snrs);
+  let min = Math.min(...snrs);
+
+  document.getElementById("txInfo").innerHTML = `
+    TX: ${lat.toFixed(2)}, ${lon.toFixed(2)} |
+    H: ${h}m | MSL: ${msl}m |
+    UTC: ${timeSlider.value}:00 |
+    Avg: ${avg.toFixed(1)} |
+    Max: ${max.toFixed(1)} |
+    Min: ${min.toFixed(1)}
+  `;
+}
+
+// ---------------- 🔥 NEW: CENTRAL UPDATE FUNCTION ----------------
+function triggerUpdate(){
+  if(lastTX){
+    loadTXPropagation(lastTX.lat, lastTX.lon);
+  }
+}
+
+// ---------------- EXISTING EVENTS ----------------
+document.getElementById("bandSelect").addEventListener("change", triggerUpdate);
+
+timeSlider.addEventListener("change", triggerUpdate);
+
+// ---------------- 🔥 NEW AUTO-REACTIVE INPUTS ----------------
+document.getElementById("antH").addEventListener("input", triggerUpdate);
+document.getElementById("msl").addEventListener("input", triggerUpdate);
+document.getElementById("az").addEventListener("input", triggerUpdate);
+document.getElementById("bw").addEventListener("input", triggerUpdate);
+
+// ---------------- INIT ----------------
+loadGlobal();
+
+</script>
+
+</body>
+</html>

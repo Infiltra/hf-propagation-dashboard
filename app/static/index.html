@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Solar Dashboard</title>
+
+<style>
+body {
+  background:#0b0f14;
+  color:#00ffcc;
+  font-family:monospace;
+  margin:0;
+}
+
+.container {
+  max-width:1400px;
+  margin:auto;
+  padding:20px;
+}
+
+.controls {
+  display:flex;
+  gap:20px;
+  margin-bottom:15px;
+}
+
+select {
+  background:#111;
+  color:#00ffcc;
+  border:1px solid #00ffcc;
+  padding:5px;
+}
+
+.grid {
+  align-items: start;
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+  gap:10px;
+}
+
+.card {
+  background:#111;
+  padding:10px;
+  border-radius:8px;
+  text-align:center;
+  white-space:pre-line;
+  height: fit-content;
+}
+
+/* -------- FIXED SPACE WEATHER CARD -------- */
+#spaceWeatherCard {
+  min-width:280px;
+  text-align:left;
+  grid-column: span 2;
+}
+
+#spaceWeatherCard span {
+  float:none;
+  display: inline-block;
+  margin-left: 6px;
+  color: #00ffcc;
+}
+
+#spaceWeatherCard hr {
+  border:0;
+  border-top:1px solid #333;
+  margin:10px 0;
+}
+
+/* -------- ALERT CARD -------- */
+#alertCard {
+  color:#ff5555;
+  text-align:left;
+  grid-column: 1;
+  border: 1px solid #ff4444;
+}
+
+/* -------- POPUP ALERT -------- */
+#alertBox {
+  position:fixed;
+  top:20px;
+  right:20px;
+  background:#111;
+  color:#ff4444;
+  padding:10px;
+  border:1px solid #ff4444;
+  display:none;
+  z-index:999;
+}
+</style>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>Solar Activity Dashboard</h2>
+
+<div style="margin-bottom:15px;">
+  <a href="/graphs" style="color:#00ffcc;">📊 View Graphs →</a>
+  <a href="/propagation" style="color:#00ffcc;">🌍 Propagation Map</a>
+  <a href="/mufmap" style="color:#00ffcc;">🌍 MUF Map</a>
+  <a href="/path.html" style="color:#00ffcc;">📡 Path Prediction</a>
+  <a href="/global" style="color:#00ffcc;">🌍 Global Usage Map</a>
+  <a href="/space-weather" style="color:#00ffcc;">🌞 Space Weather</a>
+  <a href="/timelapse" style="color:#00ffcc;">🎬 Timelapse</a>
+</div>
+
+<div class="controls">
+Mode:
+<select id="mode">
+  <option value="raw">Raw</option>
+  <option value="median">Median</option>
+  <option value="scaled">Scaled</option>
+</select>
+
+Timezone:
+<select id="tz">
+  <option value="UTC">UTC</option>
+  <option value="IST">IST</option>
+  <option value="SGT">SGT</option>
+  <option value="JST">JST</option>
+</select>
+</div>
+
+<div id="time"></div>
+
+<!-- ================= GRID ================= -->
+<div class="grid">
+
+  <div class="card" id="kp"></div>
+  <div class="card" id="xray"></div>
+  <div class="card" id="proton"></div>
+  <div class="card" id="electron"></div>
+  <div class="card" id="wind"></div>
+  <div class="card" id="sunspots"></div>
+  <div class="card" id="flux"></div>
+  <div class="card" id="geomag"></div>
+  <div class="card" id="aurora"></div>
+  <div class="card" id="storm"></div>
+  <div class="card" id="hf"></div>
+
+  <!-- ✅ SPACE WEATHER CARD (FIXED POSITION) -->
+  <div class="card" id="spaceWeatherCard">
+    <b>🌌 Space Weather Status</b>
+
+    <div style="margin-top:8px;">
+      <b>Solar Flare</b><br>
+      Level: <span id="flareLevel">--</span><br>
+      Severity: <span id="flareSeverity">--</span><br>
+      Impact: <span id="flareImpact">--</span>
+    </div>
+
+    <hr>
+
+    <div>
+      <b>Geomagnetic</b><br>
+      Kp: <span id="kpValue">--</span><br>
+      Condition: <span id="kpCondition">--</span><br>
+      Bz: <span id="bzState">--</span>
+    </div>
+
+    <hr>
+
+    <div>
+      <b>HF Impact</b><br>
+      <div id="hfImpact">--</div>
+    </div>
+  </div>
+
+  <!-- ✅ ALERT CARD -->
+  <div class="card" id="alertCard">
+    <b>🚨 Alerts</b>
+    <div id="alertList">No active alerts</div>
+  </div>
+
+</div>
+
+<h3>HF Band Conditions</h3>
+<div id="bands" class="grid"></div>
+
+</div>
+
+<!-- TIMELAPSE -->
+<div style="position:fixed; bottom:10px; right:10px;">
+  <b>Solar Timelapse</b><br>
+  <img id="miniTimelapse" width="200">
+</div>
+
+<div id="alertBox"></div>
+
+<script>
+
+// -------- ALERT CARD --------
+function renderAlerts(d){
+
+  let alerts = [];
+
+  if(d.storms?.radio_blackout !== "R0"){
+    alerts.push("📡 Radio Blackout: " + d.storms.radio_blackout);
+  }
+
+  if(d.storms?.proton !== "S0"){
+    alerts.push("☢ Proton Storm: " + d.storms.proton);
+  }
+
+  if(d.hf?.blackout !== "Low"){
+    alerts.push("⚠ HF Risk: " + d.hf.blackout);
+  }
+
+  if(d.kp?.final >= 5){
+    alerts.push("🌌 Geomagnetic Storm (Kp " + d.kp.final + ")");
+  }
+
+  document.getElementById("alertList").innerHTML =
+    alerts.length ? alerts.map(a=>"• "+a).join("<br>") : "No active alerts";
+}
+
+// -------- SPACE WEATHER --------
+async function loadSpaceWeather(){
+
+  try{
+    let res = await fetch("/space-events");
+    let data = await res.json();
+
+    if(!data) return;
+
+    // ---------- FLARE ----------
+    document.getElementById("flareLevel").innerText = data?.flare?.level || "--";
+    document.getElementById("flareSeverity").innerText = data?.flare?.severity || "--";
+    document.getElementById("flareImpact").innerText = data?.flare?.impact || "--";
+
+    // ---------- GEOMAG ----------
+    document.getElementById("kpValue").innerText = data?.geomagnetic?.kp ?? "--";
+    document.getElementById("kpCondition").innerText = data?.geomagnetic?.condition ?? "--";
+    document.getElementById("bzState").innerText = data?.geomagnetic?.bz ?? "--";
+
+    // ---------- IMPACT ----------
+    let impact = data?.impact?.summary || [];
+
+    document.getElementById("hfImpact").innerHTML =
+      impact.length ? impact.map(i=>"• "+i).join("<br>") : "• Stable conditions";
+
+  }catch(e){
+    console.log("Space weather failed", e);
+  }
+}
+
+function updateClock(){
+
+  let tz = document.getElementById("tz").value;
+
+  let now = new Date();
+
+  let timezone =
+      tz === "IST" ? "Asia/Kolkata" :
+      tz === "SGT" ? "Asia/Singapore" :
+      tz === "JST" ? "Asia/Tokyo" :
+      "UTC";
+
+  let options = {
+    timeZone: timezone,
+    hour12: false,
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  };
+
+  const formatted =
+    now.toLocaleString("en-US", options);
+
+  document.getElementById("time").innerText =
+    "🕒 " + formatted;
+}
+// -------- TIMELAPSE --------
+function loadMiniTimelapse(){
+  miniTimelapse.src = `/timelapse/0171.gif?${Date.now()}`;
+}
+
+// -------- MAIN LOAD (UNCHANGED + EXTENDED) --------
+async function load(){
+
+  const res = await fetch("/solar");
+  const d = (await res.json()).data;
+
+  kp.innerText = "Kp\n" + d.kp.final;
+  xray.innerText = "X-ray\n" + d.xray.display;
+  proton.innerText = "Proton\n" + d.proton.scaled;
+  electron.innerText = "Electron\n" + d.electron.scaled;
+  wind.innerText = "Wind\n" + d.solar_wind.speed + " Km/s";
+  sunspots.innerText = "Sunspots\n" + d.solar_cycle.sunspots;
+  flux.innerText = "F10.7\n" + d.solar_cycle.flux;
+
+  geomag.innerText =
+    "G: " + d.geomagnetic.g +
+    "\nAp: " + d.geomagnetic.ap +
+    "\nBt: " + d.geomagnetic.bt +
+    "\nBz: " + d.geomagnetic.bz;
+
+  aurora.innerText =
+    "Aurora\n" + d.aurora.level +
+    "\nKp: " + d.aurora.kp +
+    "\nBz: " + d.aurora.bz;
+
+  storm.innerText =
+    "Storms\nP: " + d.storms.proton +
+    "\nR: " + d.storms.radio_blackout +
+    "\nS: " + d.storms.radiation;
+
+  hf.innerText = "HF\n" + d.hf.blackout;
+
+  renderAlerts(d);  // ✅ NEW
+
+  bands.innerHTML="";
+  Object.entries(d.bands).forEach(([b,v])=>{
+    let el=document.createElement("div");
+    el.className="card";
+    el.innerText=b+"\n"+v;
+    bands.appendChild(el);
+  });
+}
+
+// INIT
+load();
+loadSpaceWeather();
+loadMiniTimelapse();
+updateClock();
+
+setInterval(load,60000);
+setInterval(loadSpaceWeather,60000);
+setInterval(loadMiniTimelapse,60000);
+setInterval(updateClock,1000);
+
+// timezone selector live update
+document.getElementById("tz")
+  .addEventListener("change", updateClock);
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,50 @@
+# System Architecture
+
+## Overview
+
+Sarasvati Signals is composed of four major subsystems:
+
+1. Data Collection Layer
+2. Propagation Intelligence Layer
+3. Visualization Layer
+4. Timelapse Generation Layer
+
+## Data Collection Layer
+
+NOAA SWPC
+NASA SDO
+SOHO LASCO
+
+## Propagation Intelligence Layer
+
+Solar Flux Processing
+Greyline Engine
+MUF Engine
+Absorption Engine
+Ground Effects Engine
+Auroral Engine
+
+## Visualization Layer
+
+index.html
+global.html
+propagation.html
+path.html
+muf_map.html
+space_weather.html
+
+## Timelapse Layer
+
+timelapse_service.py
+
+## Data Flow
+
+Solar Data
+↓
+Model Processing
+↓
+HF Metrics
+↓
+REST API
+↓
+Dashboard

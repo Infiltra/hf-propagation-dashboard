@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<title>Solar Graphs</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+  background:#0b0f14;
+  color:#00ffcc;
+  font-family:monospace;
+  margin:0;
+}
+
+.container {
+  max-width:1200px;
+  margin:auto;
+  padding:15px;
+}
+
+.nav {
+  margin-bottom:10px;
+}
+
+.controls {
+  display:flex;
+  gap:15px;
+  margin-bottom:15px;
+}
+
+select {
+  background:#111;
+  color:#00ffcc;
+  border:1px solid #00ffcc;
+  padding:4px;
+}
+
+/* GRID: 2 top + 1 bottom */
+.graphs {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-areas:
+    "x p"
+    "e e";
+  gap:12px;
+}
+
+.graph-block {
+  display:flex;
+  flex-direction:column;
+}
+
+.graph-title {
+  font-size:13px;
+  margin-bottom:4px;
+}
+
+#x { grid-area:x; }
+#p { grid-area:p; }
+#e { grid-area:e; }
+
+/* COMPACT HEIGHT */
+canvas {
+  background:#111;
+  border-radius:6px;
+  height:180px !important;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="nav">
+  <a href="/" style="color:#00ffcc;">⬅ Back</a>
+</div>
+
+<h3>Solar Graphs</h3>
+
+<div class="controls">
+  Mode:
+  <select id="mode">
+    <option value="raw">Raw</option>
+    <option value="median">Median</option>
+    <option value="scaled">Scaled</option>
+  </select>
+</div>
+
+<div class="graphs">
+
+  <div class="graph-block">
+    <div class="graph-title">X-ray Flux</div>
+    <canvas id="x"></canvas>
+  </div>
+
+  <div class="graph-block">
+    <div class="graph-title">Proton Flux (>10 MeV)</div>
+    <canvas id="p"></canvas>
+  </div>
+
+  <div class="graph-block">
+    <div class="graph-title">Electron Flux (>2 MeV)</div>
+    <canvas id="e"></canvas>
+  </div>
+
+</div>
+
+</div>
+
+<script>
+let cx = null;
+let cp = null;
+let ce = null;
+
+// restore mode
+const modeSelect = document.getElementById("mode");
+modeSelect.value = localStorage.getItem("mode") || "raw";
+
+modeSelect.addEventListener("change", function(e){
+  localStorage.setItem("mode", e.target.value);
+  load();
+});
+
+function buildChart(ctx, data, logScale, thresholds){
+
+  const datasets = [{
+    data: data,
+    borderWidth:1
+  }];
+
+  // ADD THRESHOLDS
+  if(thresholds){
+    Object.values(thresholds).forEach(v=>{
+      datasets.push({
+        data: new Array(data.length).fill(v),
+        borderDash:[4,4],
+        pointRadius:0,
+        borderWidth:1
+      });
+    });
+  }
+
+  return new Chart(ctx,{
+    type:'line',
+    data:{
+      labels:data.map((_,i)=>i),
+      datasets:datasets
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      animation:false,
+      plugins:{ legend:{display:false} },
+      scales:{
+        x:{display:false},
+        y:{ type: logScale ? 'logarithmic':'linear' }
+      }
+    }
+  });
+}
+
+async function load(){
+  try {
+    const res = await fetch("/solar");
+    const json = await res.json();
+    const d = json.data;
+
+    if(!d){
+      console.log("No data yet");
+      return;
+    }
+
+    let xData = d.xray?.series || [];
+    let pData = d.proton?.series || [];
+    let eData = d.electron?.series || [];
+
+    const mode = modeSelect.value;
+
+    // apply scaling
+    if(mode === "scaled"){
+      pData = pData.map(v => Math.log10(v + 1));
+      eData = eData.map(v => v * 5);
+    }
+
+    // init charts
+    if(!cx){
+
+  cx = buildChart(
+    document.getElementById("x"),
+    xData,
+    true,
+    d.xray.thresholds
+  );
+
+  cp = buildChart(
+    document.getElementById("p"),
+    pData,
+    false,
+    d.proton.thresholds
+  );
+
+  ce = buildChart(
+    document.getElementById("e"),
+    eData,
+    false,
+    d.electron.thresholds
+  );
+
+} else {
+
+  // update main data
+  cx.data.datasets[0].data = xData;
+  cp.data.datasets[0].data = pData;
+  ce.data.datasets[0].data = eData;
+
+  // 🔥 IMPORTANT: update threshold lines too
+  let xThresh = Object.values(d.xray.thresholds || {});
+  let pThresh = Object.values(d.proton.thresholds || {});
+  let eThresh = Object.values(d.electron.thresholds || {});
+
+  xThresh.forEach((v,i)=>{
+    if(cx.data.datasets[i+1]){
+      cx.data.datasets[i+1].data = new Array(xData.length).fill(v);
+    }
+  });
+
+  pThresh.forEach((v,i)=>{
+    if(cp.data.datasets[i+1]){
+      cp.data.datasets[i+1].data = new Array(pData.length).fill(v);
+    }
+  });
+
+  eThresh.forEach((v,i)=>{
+    if(ce.data.datasets[i+1]){
+      ce.data.datasets[i+1].data = new Array(eData.length).fill(v);
+    }
+  });
+
+  cx.update();
+  cp.update();
+  ce.update();
+}
+
+  } catch(e){
+    console.error("Graph error:", e);
+  }
+}
+
+// refresh every minute
+setInterval(load, 60000);
+
+// initial load
+load();
+</script>
+
+</body>
+</html>

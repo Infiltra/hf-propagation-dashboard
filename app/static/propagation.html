@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>HF Propagation</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+<style>
+body {
+  margin:0;
+  background:#0b0f14;
+  color:#00ffcc;
+  font-family:monospace;
+}
+
+#map {
+  height:90vh;
+}
+
+.topbar {
+  padding:10px;
+}
+
+.leaflet-heatmap-layer {
+  mix-blend-mode: screen;
+}
+</style>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+</head>
+
+<body>
+
+<div class="topbar">
+  <a href="/" style="color:#00ffcc;">⬅ Back</a>
+
+  <select id="bandSelect" style="margin-left:20px;">
+    <option value="snr">Overall</option>
+    <option value="10m">10m</option>
+    <option value="15m">15m</option>
+    <option value="20m">20m</option>
+    <option value="40m">40m</option>
+    <option value="80m">80m</option>
+  </select>
+
+  <span id="muf"></span>
+</div>
+
+<div id="map"></div>
+
+<script>
+
+// ---------------- MAP ----------------
+let map = L.map('map',{
+  center:[20,0],
+  zoom:2,
+  worldCopyJump:false,
+  maxBounds:[[-90,-180],[90,180]],
+  maxBoundsViscosity:1.0
+});
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  opacity:0.7,
+  noWrap:true
+}).addTo(map);
+
+let heatLayer = null;
+let line;
+let nightLayer = null;
+let spaceWeatherLayer = null;
+
+// ---------------- GREYLINE ----------------
+async function loadGreyline(){
+
+  const res = await fetch("/greyline");
+  const data = await res.json();
+
+  const pts = data.points.map(p => [p.lat, p.lon]);
+
+  if(line) map.removeLayer(line);
+
+  line = L.polyline(pts, {color:'orange', weight:2}).addTo(map);
+  line.bringToFront();
+}
+
+// ---------------- NIGHT OVERLAY ----------------
+async function drawNightOverlay(){
+
+  try {
+    const res = await fetch("/greyline");
+    const data = await res.json();
+
+    if(!data || !data.points) return;
+
+    const pts = data.points.map(p => [p.lat, p.lon]);
+
+    if(nightLayer) map.removeLayer(nightLayer);
+
+    let now = new Date();
+    let day = Math.floor((now - new Date(now.getFullYear(),0,0)) / 86400000);
+    let decl = 23.44 * Math.sin((2 * Math.PI / 365) * (day - 81));
+
+    let nightNorth = decl < 0;
+
+    let nightPoly;
+
+    if(nightNorth){
+      nightPoly = [...pts, [90,180], [90,-180]];
+    } else {
+      nightPoly = [...pts, [-90,180], [-90,-180]];
+    }
+
+    nightLayer = L.polygon(nightPoly, {
+      stroke:false,
+      fillColor:'#001a33',
+      fillOpacity:0.15
+    }).addTo(map);
+
+  } catch(e){
+    console.error("Night overlay error:", e);
+  }
+}
+
+// ---------------- MUF ----------------
+async function loadMUF(){
+
+  const res = await fetch("/solar");
+  const d = (await res.json()).data;
+
+  document.getElementById("muf").innerText =
+    "MUF: " + (d.propagation?.muf ?? "N/A") + " MHz";
+}
+
+// ---------------- PROPAGATION ----------------
+async function loadPropagation(){
+
+  try{
+    const res = await fetch("/propagation/global");
+    const data = await res.json();
+
+    const band = document.getElementById("bandSelect").value;
+
+    let heat = [];
+
+    data.forEach(p => {
+
+      let val = p.snr;
+
+      if(band !== "snr" && p.bands){
+        val = p.bands[band] || 5;
+      }
+
+      let norm = Math.pow(val/100,1.5);
+
+      if(norm < 0.05) return;
+
+      heat.push([p.lat, p.lon, norm]);
+    });
+
+    if(heatLayer){
+      map.removeLayer(heatLayer);
+    }
+
+    heatLayer = L.heatLayer(heat,{
+      radius:18,
+      blur:20,
+      minOpacity:0.2,
+      gradient:{
+        0.1:"rgba(0,0,0,0)",
+        0.3:"rgba(255,0,0,0.4)",
+        0.5:"rgba(255,165,0,0.5)",
+        0.7:"rgba(255,255,0,0.6)",
+        0.85:"rgba(0,255,0,0.7)",
+        1.0:"rgba(0,255,255,0.8)"
+      }
+    }).addTo(map);
+
+    heatLayer.bringToFront();
+
+  }catch(e){
+    console.error("Propagation error:", e);
+  }
+}
+
+async function drawSpaceWeather(){
+
+  try{
+    const res = await fetch("/solar");
+    const data = (await res.json()).data;
+
+    if(spaceWeatherLayer){
+      map.removeLayer(spaceWeatherLayer);
+    }
+
+    let kp = data.kp?.final ?? data.kp ?? 2;
+    let xray = data.xray?.display || "A";
+
+    let color = null;
+    let opacity = 0;
+
+    // ---------- GEOMAGNETIC ----------
+    if(kp >= 7){
+      color = "#ff00ff";   // strong storm (purple)
+      opacity = 0.25;
+    } else if(kp >= 5){
+      color = "#ff0000";   // storm (red)
+      opacity = 0.18;
+    } else if(kp >= 4){
+      color = "#ff8800";   // unsettled
+      opacity = 0.12;
+    }
+
+    // ---------- XRAY ----------
+    if(xray.includes("X")){
+      color = "#ff2200";
+      opacity = 0.30;
+    } else if(xray.includes("M")){
+      color = "#ff6600";
+      opacity = Math.max(opacity, 0.2);
+    }
+
+    if(!color) return;
+
+    // full-world overlay
+    spaceWeatherLayer = L.rectangle(
+      [[-90,-180],[90,180]],
+      {
+        color: null,
+        fillColor: color,
+        fillOpacity: opacity
+      }
+    ).addTo(map);
+
+  }catch(e){
+    console.error("Space weather error:", e);
+  }
+}
+
+// ---------------- INIT ----------------
+loadGreyline();
+drawNightOverlay();
+loadMUF();
+loadPropagation();
+drawSpaceWeather();
+
+document.getElementById("bandSelect").addEventListener("change", loadPropagation);
+
+setInterval(()=>{
+  loadGreyline();
+  drawNightOverlay();
+  loadMUF();
+  loadPropagation();
+  drawSpaceWeather();   // NEW
+},60000);
+
+</script>
+
+</body>
+</html>

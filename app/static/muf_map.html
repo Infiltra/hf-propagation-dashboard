@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>MUF Map</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<style>
+body { margin:0; background:#000; font-family:monospace; }
+#map { height:100vh; }
+
+.legend {
+  position:absolute;
+  bottom:20px;
+  left:20px;
+  background:#111;
+  padding:10px;
+  color:#fff;
+  border:1px solid #444;
+}
+
+.legend {
+  background: rgba(0,0,0,0.85);
+  padding: 12px 14px;
+
+  width: 180px;        /*  controls width */
+  max-width: 220px;    /* optional limit */
+
+  font-size: 13px;     /*  text size */
+  line-height: 18px;
+
+  border-radius: 8px;
+  border: 1px solid #444;
+}
+</style>
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<div class="legend">
+<b>MUF (MHz)</b><br>
+<span style="color:lime;">■</span> >20<br>
+<span style="color:yellow;">■</span> 14–20<br>
+<span style="color:orange;">■</span> 7–14<br>
+<span style="color:red;">■</span> <7
+</div>
+
+
+<script>
+function band(muf){
+  if(muf >= 28) return "10m";
+  if(muf >= 21) return "15m";
+  if(muf >= 14) return "20m";
+  if(muf >= 7)  return "40m";
+  return "NVIS";
+}
+let map = L.map('map').setView([20,0], 2);
+// ---------- LEGEND ----------
+let legend = L.control({position: 'bottomleft'});
+
+legend.onAdd = function () {
+  let div = L.DomUtil.create('div', 'legend');
+  div.innerHTML = `
+<b>MUF (MHz)</b><br>
+<i style="background:lime;width:20px;height:20px;display:inline-block;"></i> > 20<br>
+<i style="background:yellow;width:20px;height:20px;display:inline-block;"></i> 14–20<br>
+<i style="background:orange;width:20px;height:20px;display:inline-block;"></i> 7–14<br>
+<i style="background:red;width:20px;height:20px;display:inline-block;"></i> < 7<br><br>
+
+<b>Band</b><br>
+10m → MUF ≥ 28<br>
+15m → MUF ≥ 21<br>
+20m → MUF ≥ 14<br>
+40m → MUF ≥ 7<br>
+NVIS → MUF < 7
+`;
+  return div;
+};
+
+legend.addTo(map);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+function color(muf){
+  if(muf > 20) return "lime";
+  if(muf > 14) return "yellow";
+  if(muf > 7) return "orange";
+  return "red";
+}
+
+async function load(){
+  const res = await fetch("/muf_map");
+  const d = await res.json();
+
+  d.grid.forEach(p=>{
+
+  let circle = L.circle([p.lat, p.lon],{
+    radius:300000,
+    color:color(p.muf),
+    fillOpacity:0.1,
+    weight:0
+  }).addTo(map);
+
+  //  ADD BAND LABEL
+  let label = band(p.muf);
+
+  circle.bindTooltip(
+    `<b>${label}</b><br>
+     MUF: ${p.muf} MHz<br>
+     Lat: ${p.lat}, Lon: ${p.lon}`
+  );
+
+});
+    circle.on('mouseover', function () {
+        this.setStyle({weight:2});
+    });
+
+    circle.on('mouseout', function () {
+        this.setStyle({weight:0});
+    });
+
+}
+// -------- ADD: GREYLINE + NIGHT OVERLAY --------
+let greylineLayer = null;
+let nightLayer = null;
+
+async function drawGreylineOverlay(){
+
+  try {
+    const res = await fetch("/greyline");
+    const data = await res.json();
+
+    if(!data || !data.points) return;
+
+    const pts = data.points.map(p => [p.lat, p.lon]);
+
+    if(greylineLayer) map.removeLayer(greylineLayer);
+    if(nightLayer) map.removeLayer(nightLayer);
+
+    // greyline
+    greylineLayer = L.polyline(pts, {
+      color: 'orange',
+      weight: 2
+    }).addTo(map);
+
+    // night region
+    let nightPoly = [
+      ...pts,
+      [90, 180],
+      [90, -180]
+    ];
+
+    nightLayer = L.polygon(nightPoly, {
+      stroke: false,
+      fillColor: 'black',
+      fillOpacity: 0.35
+    }).addTo(map);
+
+  } catch(e){
+    console.error("Greyline error:", e);
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>
