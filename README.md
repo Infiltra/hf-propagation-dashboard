@@ -1,4 +1,4 @@
-# Sarasvati Signals
+# HF Propagation Dashboard
 
 Real-Time HF Propagation Intelligence Platform
 
