@@ -6,9 +6,9 @@ Python 3.12+
 
 ## Clone Repository
 
-git clone https://github.com/YOURNAME/sarasvati-signals.git
+git clone https://github.com/YOURNAME/hf-propagation-dashboard.git
 
-cd sarasvati-signals
+cd hf-propagation-dashboard
 
 ## Install Dependencies
 
