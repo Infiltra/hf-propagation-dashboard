@@ -1,6 +1,6 @@
 # Propagation Model
 
-![Workflow](images/model_workflow.png)
+![Workflow](images/model_flow.png)
 
 The propagation engine uses:
 
