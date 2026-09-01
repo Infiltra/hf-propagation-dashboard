@@ -44,7 +44,7 @@ conditions.
 
 ## Architecture
 
-![Architecture](docs/images/architecture.png)
+![Architecture](docs/images/SystemArch.png)
 
 The system consists of:
 
@@ -64,7 +64,7 @@ The system consists of:
 
 # HF Dashboard
 
-![Dashboard](docs/images/dashboard.png)
+![Dashboard](docs/images/SpaceWeaDash.png)
 
 Real-time monitoring of:
 
@@ -76,11 +76,11 @@ Real-time monitoring of:
 
 ## Global MUF Visualization
 
-![Global MUF Map](docs/images/global_muf_map.png)
+![Global MUF Map](docs/images/GlobalMap.png)
 
 ## Path Prediction
 
-![Path Prediction](docs/images/path_prediction.png)
+![Path Prediction](docs/images/PathPred.png)
 
 Path quality is estimated using great-circle routing and MUF sampling along the path.
 
