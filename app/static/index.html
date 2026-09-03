@@ -134,6 +134,8 @@ Timezone:
   <div class="card" id="proton"></div>
   <div class="card" id="electron"></div>
   <div class="card" id="wind"></div>
+  <div class="card" id="solarMag"></div>
+  <div class="card" id="muf"></div>
   <div class="card" id="sunspots"></div>
   <div class="card" id="flux"></div>
   <div class="card" id="geomag"></div>
@@ -211,6 +213,10 @@ function renderAlerts(d){
 
   if(d.kp?.final >= 5){
     alerts.push("🌌 Geomagnetic Storm (Kp " + d.kp.final + ")");
+  }
+
+  if(d.wind_impact !== "Quiet"){
+  alerts.push("☀ Solar Wind: " + d.wind_impact);
   }
 
   document.getElementById("alertList").innerHTML =
@@ -292,37 +298,143 @@ async function load(){
   xray.innerText = "X-ray\n" + d.xray.display;
   proton.innerText = "Proton\n" + d.proton.scaled;
   electron.innerText = "Electron\n" + d.electron.scaled;
-  wind.innerText = "Wind\n" + d.solar_wind.speed + " Km/s";
-  sunspots.innerText = "Sunspots\n" + d.solar_cycle.sunspots;
-  flux.innerText = "F10.7\n" + d.solar_cycle.flux;
+  
+  wind.innerText =
+  "Solar Wind\n" +
+  "Speed: " + (d.solar_wind?.speed ?? "--") + " km/s" +
+  "\nDensity: " + (d.solar_wind?.density ?? "--") +
+  "\nImpact: " + (d.wind_impact ?? "--");
+
+    sunspots.innerText =
+  "Sunspots\n" +
+  d.solar_cycle.sunspots;
+
+  flux.innerText =
+  "F10.7\n" +
+  d.solar_cycle.flux;
+
+  // geomag.innerText =
+  //   "G: " + d.geomagnetic.g +
+  //   "\nAp: " + d.geomagnetic.ap +
+  //   "\nBt: " + d.geomagnetic.bt +
+  //   "\nBz: " + d.geomagnetic.bz;
 
   geomag.innerText =
-    "G: " + d.geomagnetic.g +
-    "\nAp: " + d.geomagnetic.ap +
-    "\nBt: " + d.geomagnetic.bt +
-    "\nBz: " + d.geomagnetic.bz;
+  "Geomagnetic" +
+  "\nG: " + d.geomagnetic.g +
+  "\nAp: " + d.geomagnetic.ap +
+  "\nBt: " + d.solar_mag.bt +
+  "\nBz: " + d.solar_mag.bz +
+  "\nTrend: " + d.solar_mag.bz_trend;
 
-  aurora.innerText =
-    "Aurora\n" + d.aurora.level +
+  solarMag.innerText =
+  "IMF\n" +
+  "Bt: " + (d.solar_mag?.bt ?? "--") +
+  "\nBz: " + (d.solar_mag?.bz ?? "--") +
+  "\nTrend: " + (d.solar_mag?.bz_trend ?? "--");
+
+  // aurora.innerText =
+  //   "Aurora\n" + d.aurora.level +
+  //   "\nKp: " + d.aurora.kp +
+  //   "\nBz: " + d.aurora.bz;
+
+    aurora.innerText =
+    "Aurora\n" +
+    d.aurora.level +
     "\nKp: " + d.aurora.kp +
-    "\nBz: " + d.aurora.bz;
+    "\nBz: " + d.aurora.bz +
+    "\nChance: " +
+    (d.kp.final >= 5 ? "High" :
+    d.kp.final >= 4 ? "Moderate" :
+    "Low");
 
   storm.innerText =
     "Storms\nP: " + d.storms.proton +
     "\nR: " + d.storms.radio_blackout +
     "\nS: " + d.storms.radiation;
 
-  hf.innerText = "HF\n" + d.hf.blackout;
+  // hf.innerText = "HF\n" + d.hf.blackout;
+  // hf.innerText =
+  // "HF\n\nMUF: " +
+  // d.propagation.muf +
+  // " MHz\nRisk: " +
+  // d.hf.blackout;
+
+  hf.innerText =
+  "HF\n" +
+  "MUF: " + d.propagation.muf +
+  " MHz\n" +
+  "Risk: " + d.hf.blackout +
+  "\nR: " + d.storms.radio_blackout;
+
+  // muf.innerText =
+  // "MUF\n" +
+  // d.propagation.muf + " MHz";
+
+  let mufVal = d.propagation.muf;
+
+  let mufBand =
+    mufVal >= 28 ? "10m Open" :
+    mufVal >= 21 ? "15m Open" :
+    mufVal >= 14 ? "20m Open" :
+    mufVal >= 7  ? "40m Open" :
+                  "Low HF";
+
+  muf.innerText =
+    "MUF\n" +
+    mufVal + " MHz\n" +
+    mufBand;
 
   renderAlerts(d);  // ✅ NEW
 
+  // bands.innerHTML="";
+  // Object.entries(d.bands).forEach(([b,v])=>{
+  //   let el=document.createElement("div");
+  //   el.className="card";
+  //   el.innerText=b+"\n"+v;
+  //   bands.appendChild(el);
+  // });
+
   bands.innerHTML="";
-  Object.entries(d.bands).forEach(([b,v])=>{
-    let el=document.createElement("div");
-    el.className="card";
-    el.innerText=b+"\n"+v;
+
+Object.entries(d.bands).forEach(([b,v])=>{
+
+    let el = document.createElement("div");
+
+    el.className = "card";
+
+    el.innerText = b + "\n" + v;
+
+    if(v.includes("Excellent"))
+        el.style.border = "1px solid #00ff00";
+
+    else if(v.includes("Good"))
+        el.style.border = "1px solid #00ccff";
+
+    else if(v.includes("Fair"))
+        el.style.border = "1px solid #ffaa00";
+
+    else
+        el.style.border = "1px solid #ff4444";
+
     bands.appendChild(el);
-  });
+
+});
+
+  if(d.kp.final >= 5)
+    kp.style.color = "#ff5555";
+  else
+    kp.style.color = "#00ffcc";
+
+  if(d.storms.radio_blackout !== "R0")
+    xray.style.color = "#ff5555";
+  else
+    xray.style.color = "#00ffcc";
+
+  if(d.wind_impact !== "Quiet")
+    wind.style.color = "#ffaa00";
+  else
+    wind.style.color = "#00ffcc";
 }
 
 // INIT

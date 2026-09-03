@@ -309,22 +309,26 @@ def solar_cycle():
 # ---------------- SOLAR WIND (IMPROVED) ----------------
 def solar_wind():
 
-    d = fetch_json("https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json")
-    if not d or len(d) < 10:
+    d = fetch_json(
+        "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json"
+    )
+
+    if not d:
         log("SOLAR_WIND", "NO DATA")
         return None
 
     rows = []
 
     for x in d:
+
         try:
-            density = float(x[1])
-            speed = float(x[2])
+            density = float(x["proton_density"])
+            speed = float(x["proton_speed"])
 
             if density > 0 and speed > 0:
                 rows.append((density, speed))
 
-        except:
+        except Exception:
             continue
 
     if not rows:
@@ -335,10 +339,6 @@ def solar_wind():
 
     densities = [r[0] for r in recent]
     speeds = [r[1] for r in recent]
-
-    if not densities or not speeds:
-        log("SOLAR_WIND", "EMPTY SERIES")
-        return None
 
     speed = statistics.mean(speeds)
     density = statistics.mean(densities)
@@ -352,23 +352,31 @@ def solar_wind():
     }
 
 
+
+# Well NOAA changed the endpoint, and the parser had to undergo a change as well, hence this code
 def solar_wind_mag():
 
-    d = fetch_json("https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json")
-    if not d or len(d) < 10:
+    d = fetch_json(
+        "https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json"
+    )
+
+    if not d:
         log("SOLAR_MAG", "NO DATA")
         return None
 
     rows = []
 
     for x in d:
+
         try:
-            bt = float(x[3])
-            bz = float(x[6])
+            bt = float(x["bt"])
+
+            # GSM coordinates are what matter for geomagnetic coupling
+            bz = float(x["bz_gsm"])
 
             rows.append((bt, bz))
 
-        except:
+        except Exception:
             continue
 
     if not rows:
@@ -386,11 +394,58 @@ def solar_wind_mag():
     neg = [v for v in bz_vals if v < 0]
     south_bias = sum(neg) / len(neg) if neg else 0
 
+    log("BT", bt)
+    log("BZ", bz)
+    log("BZ_TREND", south_bias)
+
     return {
         "bt": round(bt, 2),
         "bz": round(bz, 2),
         "bz_trend": round(south_bias, 2)
     }
+
+    
+# def solar_wind_mag():
+
+#     d = fetch_json("https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json")
+#     if not d or len(d) < 10:
+#         log("SOLAR_MAG", "NO DATA")
+#         return None
+
+#     rows = []
+
+#     for x in d:
+#         try:
+#             bt = float(x[3])
+#             bz = float(x[6])
+
+#             rows.append((bt, bz))
+
+#         except:
+#             continue
+
+#     if not rows:
+#         log("SOLAR_MAG", "NO VALID ROWS")
+#         return None
+
+#     recent = rows[-20:]
+
+#     bt_vals = [r[0] for r in recent]
+#     bz_vals = [r[1] for r in recent]
+
+#     bt = statistics.mean(bt_vals)
+#     bz = statistics.mean(bz_vals)
+
+#     neg = [v for v in bz_vals if v < 0]
+#     south_bias = sum(neg) / len(neg) if neg else 0
+
+#     return {
+#         "bt": round(bt, 2),
+#         "bz": round(bz, 2),
+#         "bz_trend": round(south_bias, 2)
+#     }
+
+
 
 def solar_wind_impact(speed, bz, bz_trend=None):
 
@@ -404,6 +459,7 @@ def solar_wind_impact(speed, bz, bz_trend=None):
         return "Elevated"
 
     return "Quiet"
+
 
 def global_propagation_grid():
 
@@ -795,6 +851,7 @@ def fetch():
 
     "solar_cycle": sc,
     "solar_wind": sw,
+    "solar_mag": mag,
 
     "wind_impact": solar_wind_impact(
     sw["speed"] if sw else None,
